@@ -1,0 +1,615 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>January - Feed The King</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: 'Courier New', Courier, monospace; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            text-align: center;
+            pointer-events: none;
+            text-shadow: 2px 2px 4px #000;
+            z-index: 5;
+        }
+        #inventory {
+            position: absolute;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            color: cyan;
+            font-size: 24px;
+            pointer-events: none;
+            z-index: 5;
+        }
+        #time-ui {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            color: #aaa;
+            font-size: 14px;
+            text-align: right;
+            pointer-events: none;
+        }
+        #crosshair {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 10px;
+            height: 10px;
+            border: 1px solid rgba(255,255,255,0.5);
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        #message {
+            position: absolute;
+            top: 40%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: #ff0000;
+            font-size: 40px;
+            font-weight: bold;
+            display: none;
+            text-transform: uppercase;
+            pointer-events: none;
+            z-index: 10;
+        }
+        #hunger-bar-container {
+            width: 300px;
+            height: 20px;
+            background: #222;
+            border: 2px solid #444;
+            margin-top: 10px;
+        }
+        #hunger-bar {
+            width: 100%;
+            height: 100%;
+            background: #ff4444;
+            transition: width 0.1s linear;
+        }
+        #jumpscare {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            background: black;
+            display: none;
+            z-index: 1000;
+            justify-content: center;
+            align-items: center;
+            overflow: hidden;
+        }
+        #jumpscare-img {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            filter: contrast(1.5) brightness(1.2);
+        }
+        .shake {
+            animation: shake-anim 0.1s infinite;
+        }
+        @keyframes shake-anim {
+            0% { transform: translate(2px, 1px) rotate(0deg); }
+            10% { transform: translate(-1px, -2px) rotate(-1deg); }
+            20% { transform: translate(-3px, 0px) rotate(1deg); }
+            30% { transform: translate(3px, 2px) rotate(0deg); }
+            40% { transform: translate(1px, -1px) rotate(1deg); }
+            50% { transform: translate(-1px, 2px) rotate(-1deg); }
+            60% { transform: translate(-3px, 1px) rotate(0deg); }
+            70% { transform: translate(3px, 1px) rotate(-1deg); }
+            80% { transform: translate(-1px, -1px) rotate(1deg); }
+            90% { transform: translate(1px, 2px) rotate(0deg); }
+            100% { transform: translate(1px, -2px) rotate(-1deg); }
+        }
+        #instructions {
+            position: absolute;
+            background: rgba(0,0,0,0.9);
+            color: white;
+            padding: 40px;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            text-align: center;
+            cursor: pointer;
+            z-index: 20;
+            border: 1px solid #444;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="instructions">
+        <h1>JANUARY</h1>
+        <p>Use WASD to Move | Mouse to Look</p>
+        <p>Collect Blue Orbs in the forest</p>
+        <p>Enter the cabin and Feed "The King"</p>
+        <p style="color: #ff4444;"><b>FEED HIM BEFORE HIS PATIENCE EXPIRES</b></p>
+        <button id="start-btn" style="padding: 15px 30px; cursor: pointer; background: #222; color: white; border: 1px solid #555; margin-top: 20px;">START SURVIVAL</button>
+    </div>
+
+    <div id="ui">
+        <div>THE KING'S PATIENCE</div>
+        <div id="hunger-bar-container"><div id="hunger-bar"></div></div>
+    </div>
+    
+    <div id="time-ui">
+        <div id="cycle-status">NIGHT</div>
+        <div id="cycle-timer">00:00</div>
+    </div>
+
+    <div id="inventory">ORBS: <span id="orb-count">0</span></div>
+    <div id="crosshair"></div>
+    <div id="message">The King is Pleased</div>
+
+    <div id="jumpscare">
+        <img id="jumpscare-img" src="https://i.ytimg.com/vi/M4BGjMo5IUg/hqdefault.jpg" alt="Jumpscare">
+    </div>
+
+    <!-- Hidden audio element for the external jumpscare sound -->
+    <audio id="jumpscare-audio" src="https://raw.githubusercontent.com/davidegeric-cloud/image/main/jumpscare-94984.mp3" preload="auto"></audio>
+
+    <script>
+        // --- AUDIO SYSTEM ---
+        let audioCtx;
+
+        function initAudio() {
+            if (audioCtx) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // Background Wind Ambience
+            const bufferSize = 2 * audioCtx.sampleRate,
+            noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate),
+            output = noiseBuffer.getChannelData(0);
+            for (let i = 0; i < bufferSize; i++) {
+                output[i] = Math.random() * 2 - 1;
+            }
+            const whiteNoise = audioCtx.createBufferSource();
+            whiteNoise.buffer = noiseBuffer;
+            whiteNoise.loop = true;
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 400;
+            const windGain = audioCtx.createGain();
+            windGain.gain.value = 0.15;
+            whiteNoise.connect(filter);
+            filter.connect(windGain);
+            windGain.connect(audioCtx.destination);
+            whiteNoise.start();
+
+            // LFO for wind gusting
+            const lfo = audioCtx.createOscillator();
+            lfo.frequency.value = 0.2;
+            const lfoGain = audioCtx.createGain();
+            lfoGain.gain.value = 200;
+            lfo.connect(lfoGain);
+            lfoGain.connect(filter.frequency);
+            lfo.start();
+        }
+
+        function playSound(type) {
+            if (!audioCtx) return;
+            
+            if (type === 'jumpscare') {
+                const jAudio = document.getElementById('jumpscare-audio');
+                jAudio.currentTime = 0;
+                jAudio.volume = 1.0;
+                jAudio.play().catch(e => console.error("Audio play failed:", e));
+                return;
+            }
+
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+
+            if (type === 'orb') {
+                osc.type = 'sine';
+                osc.frequency.setValueAtTime(800, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(1200, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gain.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'step') {
+                osc.type = 'triangle';
+                osc.frequency.setValueAtTime(150, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(40, audioCtx.currentTime + 0.1);
+                gain.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.1);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.1);
+            } else if (type === 'feed') {
+                osc.type = 'sawtooth';
+                osc.frequency.setValueAtTime(60, audioCtx.currentTime);
+                osc.frequency.exponentialRampToValueAtTime(20, audioCtx.currentTime + 0.5);
+                gain.gain.setValueAtTime(0.2, audioCtx.currentTime);
+                gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.5);
+                osc.start();
+                osc.stop(audioCtx.currentTime + 0.5);
+            }
+        }
+
+        // --- GAME LOGIC ---
+        let scene, camera, renderer, clock;
+        let moveForward = false, moveBackward = false, moveLeft = false, moveRight = false;
+        let velocity = new THREE.Vector3();
+        let orbs = [];
+        let colliders = [];
+        let orbCount = 0;
+        let hunger = 100;
+        let gameActive = false;
+        let king, mouth;
+        let sunLight, ambientLight;
+        let stepTimer = 0;
+
+        const SPEED = 55.0; 
+        const FRICTION = 10.0;
+        const HUNGER_DECAY = 1.66; 
+
+        const NIGHT_DURATION = 8 * 60; 
+        const DAY_DURATION = 5 * 60;
+        const TOTAL_CYCLE = NIGHT_DURATION + DAY_DURATION;
+        let worldTime = 0;
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x010103);
+            scene.fog = new THREE.FogExp2(0x010103, 0.035);
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.rotation.order = 'YXZ'; 
+            
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.shadowMap.enabled = true;
+            document.body.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            ambientLight = new THREE.AmbientLight(0x202025, 0.4);
+            scene.add(ambientLight);
+
+            sunLight = new THREE.DirectionalLight(0xccccff, 0.3);
+            sunLight.position.set(50, 100, 50);
+            scene.add(sunLight);
+
+            const ground = new THREE.Mesh(
+                new THREE.PlaneGeometry(1000, 1000), 
+                new THREE.MeshPhongMaterial({ color: 0xddddff })
+            );
+            ground.rotation.x = -Math.PI / 2;
+            ground.receiveShadow = true;
+            scene.add(ground);
+
+            createCabin();
+            createKing();
+            createForest();
+
+            for(let i=0; i<35; i++) spawnOrb();
+
+            document.addEventListener('keydown', (e) => {
+                if(e.code === 'KeyW') moveForward = true;
+                if(e.code === 'KeyA') moveLeft = true;
+                if(e.code === 'KeyS') moveBackward = true;
+                if(e.code === 'KeyD') moveRight = true;
+            });
+            document.addEventListener('keyup', (e) => {
+                if(e.code === 'KeyW') moveForward = false;
+                if(e.code === 'KeyA') moveLeft = false;
+                if(e.code === 'KeyS') moveBackward = false;
+                if(e.code === 'KeyD') moveRight = false;
+            });
+
+            document.getElementById('start-btn').addEventListener('click', (e) => {
+                e.stopPropagation();
+                initAudio();
+                document.body.requestPointerLock();
+            });
+
+            document.addEventListener('pointerlockchange', () => {
+                if (document.pointerLockElement === document.body) {
+                    document.getElementById('instructions').style.display = 'none';
+                    gameActive = true;
+                } else {
+                    document.getElementById('instructions').style.display = 'block';
+                    gameActive = false;
+                }
+            });
+
+            document.addEventListener('mousemove', (e) => {
+                if (document.pointerLockElement === document.body) {
+                    camera.rotation.y -= e.movementX * 0.002;
+                    camera.rotation.x -= e.movementY * 0.002;
+                    camera.rotation.x = Math.max(-Math.PI/2.1, Math.min(Math.PI/2.1, camera.rotation.x));
+                }
+            });
+
+            camera.position.set(0, 1.6, 40);
+            animate();
+        }
+
+        function createCabin() {
+            const cabinPos = { x: 0, y: 0, z: -10 };
+            const wallMat = new THREE.MeshPhongMaterial({ color: 0x2d1b0f });
+            const floorMat = new THREE.MeshPhongMaterial({ color: 0x1a0d06 });
+
+            const floor = new THREE.Mesh(new THREE.BoxGeometry(10, 0.2, 12), floorMat);
+            floor.position.set(cabinPos.x, 0.1, cabinPos.z);
+            scene.add(floor);
+
+            const walls = [
+                { w: 10, h: 6, d: 0.5, x: 0, y: 3, z: -6 }, 
+                { w: 0.5, h: 6, d: 12, x: -5, y: 3, z: 0 }, 
+                { w: 0.5, h: 6, d: 12, x: 5, y: 3, z: 0 },  
+                { w: 3.5, h: 6, d: 0.5, x: -3.25, y: 3, z: 6 }, 
+                { w: 3.5, h: 6, d: 0.5, x: 3.25, y: 3, z: 6 },  
+                { w: 3, h: 2, d: 0.5, x: 0, y: 5, z: 6 },    
+            ];
+
+            walls.forEach(w => {
+                const mesh = new THREE.Mesh(new THREE.BoxGeometry(w.w, w.h, w.d), wallMat);
+                mesh.position.set(cabinPos.x + w.x, w.y, cabinPos.z + w.z);
+                scene.add(mesh);
+                colliders.push(new THREE.Box3().setFromObject(mesh));
+            });
+
+            const roofMat = new THREE.MeshPhongMaterial({ color: 0x1a0a00 });
+            const roof = new THREE.Mesh(new THREE.BoxGeometry(11, 1, 13), roofMat);
+            roof.position.set(cabinPos.x, 6.5, cabinPos.z);
+            scene.add(roof);
+
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            canvas.width = 256; canvas.height = 64;
+            ctx.fillStyle = '#2d1b0f';
+            ctx.fillRect(0,0,256,64);
+            ctx.fillStyle = 'red';
+            ctx.font = 'bold 24px Courier';
+            ctx.textAlign = 'center';
+            ctx.fillText('FEED THE KING', 128, 40);
+            const signTex = new THREE.CanvasTexture(canvas);
+            const sign = new THREE.Mesh(new THREE.PlaneGeometry(4, 1), new THREE.MeshBasicMaterial({ map: signTex }));
+            sign.position.set(0, 5, -3.4);
+            scene.add(sign);
+        }
+
+        function createKing() {
+            king = new THREE.Group();
+            const body = new THREE.Mesh(new THREE.ConeGeometry(1.2, 5, 8), new THREE.MeshStandardMaterial({ color: 0x050505 }));
+            body.position.y = 2.5;
+            king.add(body);
+            const face = new THREE.Mesh(new THREE.SphereGeometry(0.5, 16, 16), new THREE.MeshStandardMaterial({ color: 0xdddddd }));
+            face.position.set(0, 4.2, 0.4);
+            king.add(face);
+            const eyeMat = new THREE.MeshBasicMaterial({ color: 0xff0000 });
+            const eyeL = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), eyeMat);
+            eyeL.position.set(-0.15, 4.3, 0.85);
+            const eyeR = new THREE.Mesh(new THREE.SphereGeometry(0.06, 8, 8), eyeMat);
+            eyeR.position.set(0.15, 4.3, 0.85);
+            king.add(eyeL, eyeR);
+            mouth = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.05, 0.1), new THREE.MeshBasicMaterial({ color: 0x000000 }));
+            mouth.position.set(0, 4.0, 0.85);
+            king.add(mouth);
+            king.position.set(0, 0, -13);
+            scene.add(king);
+        }
+
+        function createTree(x, z) {
+            const tree = new THREE.Group();
+            const scale = 0.8 + Math.random() * 0.7;
+            const height = 4 + Math.random() * 3;
+            const trunkMat = new THREE.MeshPhongMaterial({ color: 0x1a0f05 });
+            const trunk = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.35, height), trunkMat);
+            trunk.position.y = height / 2;
+            tree.add(trunk);
+            const leafMat = new THREE.MeshPhongMaterial({ color: 0x0a1a0a });
+            const snowMat = new THREE.MeshPhongMaterial({ color: 0xffffff });
+            const layers = 3 + Math.floor(Math.random() * 2);
+            for(let i = 0; i < layers; i++) {
+                const layerScale = (layers - i) / layers;
+                const layerGroup = new THREE.Group();
+                const cone = new THREE.Mesh(new THREE.ConeGeometry(2 * layerScale, 3 * layerScale, 6), leafMat);
+                layerGroup.add(cone);
+                const snowCap = new THREE.Mesh(new THREE.ConeGeometry(2.05 * layerScale, 1.2 * layerScale, 6), snowMat);
+                snowCap.position.y = 0.9 * layerScale;
+                layerGroup.add(snowCap);
+                layerGroup.position.y = (height * 0.4) + (i * 1.5 * scale);
+                layerGroup.rotation.y = Math.random() * Math.PI;
+                tree.add(layerGroup);
+            }
+            tree.position.set(x, 0, z);
+            tree.scale.set(scale, scale, scale);
+            scene.add(tree);
+        }
+
+        function createForest() {
+            for (let i = 0; i < 300; i++) {
+                const angle = Math.random() * Math.PI * 2;
+                const radius = 25 + Math.random() * 250;
+                const x = Math.cos(angle) * radius;
+                const z = Math.sin(angle) * radius;
+                if (Math.abs(x) < 10 && z > -25 && z < 25) continue;
+                createTree(x, z);
+            }
+        }
+
+        function spawnOrb() {
+            const orb = new THREE.Mesh(
+                new THREE.SphereGeometry(0.4, 16, 16), 
+                new THREE.MeshBasicMaterial({ color: 0x00ffff, transparent: true, opacity: 0.8 })
+            );
+            const x = (Math.random() - 0.5) * 400;
+            const z = (Math.random() - 0.5) * 400;
+            if (Math.abs(x) < 15 && Math.abs(z) < 20) return spawnOrb();
+            orb.position.set(x, 1, z);
+            const l = new THREE.PointLight(0x00ffff, 1.5, 8);
+            orb.add(l);
+            scene.add(orb);
+            orbs.push(orb);
+        }
+
+        function feedKing() {
+            if (orbCount > 0) {
+                orbCount--;
+                document.getElementById('orb-count').innerText = orbCount;
+                hunger = Math.min(100, hunger + 35);
+                playSound('feed');
+                
+                let startTime = Date.now();
+                const anim = setInterval(() => {
+                    let elapsed = Date.now() - startTime;
+                    mouth.scale.y = 1 + Math.sin(elapsed * 0.1) * 15;
+                    mouth.scale.x = 1 + Math.sin(elapsed * 0.1) * 3;
+                    if (elapsed > 1200) {
+                        clearInterval(anim);
+                        mouth.scale.set(1, 1, 1);
+                    }
+                }, 16);
+
+                showMessage("The King is Pleased", "#00ff00");
+                spawnOrb();
+            } else {
+                showMessage("NO OFFERING", "#ff0000");
+            }
+        }
+
+        function showMessage(txt, color) {
+            const el = document.getElementById('message');
+            el.innerText = txt;
+            el.style.color = color;
+            el.style.display = 'block';
+            setTimeout(() => el.style.display = 'none', 1500);
+        }
+
+        function checkCollisions(nextPos) {
+            const playerBox = new THREE.Box3().setFromCenterAndSize(nextPos, new THREE.Vector3(1.2, 2, 1.2));
+            for(let box of colliders) {
+                if(playerBox.intersectsBox(box)) return true;
+            }
+            return false;
+        }
+
+        function updateDayNightCycle(delta) {
+            worldTime = (worldTime + delta) % TOTAL_CYCLE;
+            const isNight = worldTime < NIGHT_DURATION;
+            const transTime = 10; 
+            let blend = 0;
+            if (isNight) {
+                blend = worldTime > NIGHT_DURATION - transTime ? (worldTime - (NIGHT_DURATION - transTime)) / transTime : 0;
+            } else {
+                blend = worldTime > TOTAL_CYCLE - transTime ? 1 - (worldTime - (TOTAL_CYCLE - transTime)) / transTime : 1;
+            }
+            const nightColor = new THREE.Color(0x010103);
+            const dayColor = new THREE.Color(0xeeeeee);
+            scene.background.lerpColors(nightColor, dayColor, blend);
+            scene.fog.color.copy(scene.background);
+            sunLight.intensity = 0.3 + (blend * 0.7);
+            ambientLight.intensity = 0.4 + (blend * 0.4);
+            const remaining = isNight ? (NIGHT_DURATION - worldTime) : (TOTAL_CYCLE - worldTime);
+            const mins = Math.floor(remaining / 60);
+            const secs = Math.floor(remaining % 60);
+            document.getElementById('cycle-status').innerText = isNight ? "NIGHT" : "DAY";
+            document.getElementById('cycle-status').style.color = isNight ? "#aaa" : "#ffaa00";
+            document.getElementById('cycle-timer').innerText = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if (!gameActive) return;
+
+            const delta = Math.min(clock.getDelta(), 0.1);
+            updateDayNightCycle(delta);
+
+            velocity.x -= velocity.x * FRICTION * delta;
+            velocity.z -= velocity.z * FRICTION * delta;
+
+            const moveDir = new THREE.Vector3();
+            moveDir.z = Number(moveForward) - Number(moveBackward);
+            moveDir.x = Number(moveRight) - Number(moveLeft);
+            moveDir.normalize();
+
+            if (moveForward || moveBackward) velocity.z += moveDir.z * SPEED * delta;
+            if (moveLeft || moveRight) velocity.x += moveDir.x * SPEED * delta;
+
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            forward.y = 0; forward.normalize();
+            const right = new THREE.Vector3(1, 0, 0).applyQuaternion(camera.quaternion);
+            right.y = 0; right.normalize();
+            
+            const moveVec = new THREE.Vector3()
+                .addScaledVector(forward, velocity.z)
+                .addScaledVector(right, velocity.x)
+                .multiplyScalar(delta);
+
+            if (moveVec.lengthSq() > 0.0001) {
+                stepTimer += delta;
+                if (stepTimer > 0.45) {
+                    playSound('step');
+                    stepTimer = 0;
+                }
+            }
+
+            const nextPos = camera.position.clone().add(moveVec);
+            if (!checkCollisions(nextPos)) {
+                camera.position.copy(nextPos);
+            } else {
+                const onlyX = camera.position.clone().add(new THREE.Vector3(moveVec.x, 0, 0));
+                if (!checkCollisions(onlyX)) camera.position.x = onlyX.x;
+                const onlyZ = camera.position.clone().add(new THREE.Vector3(0, 0, moveVec.z));
+                if (!checkCollisions(onlyZ)) camera.position.z = onlyZ.z;
+            }
+
+            camera.position.y = 1.6;
+            hunger -= HUNGER_DECAY * delta;
+            document.getElementById('hunger-bar').style.width = Math.max(0, hunger) + '%';
+            
+            if (hunger < 30 && Math.floor(Date.now() / 500) % 2 === 0 && Math.random() < 0.1) {
+                playSound('step');
+            }
+
+            if (hunger <= 0) {
+                gameActive = false;
+                playSound('jumpscare');
+                document.getElementById('jumpscare').style.display = 'flex';
+                document.getElementById('jumpscare-img').classList.add('shake');
+                setTimeout(() => location.reload(), 4500); 
+            }
+
+            for (let i = orbs.length - 1; i >= 0; i--) {
+                if (camera.position.distanceTo(orbs[i].position) < 2.0) {
+                    scene.remove(orbs[i]);
+                    orbs.splice(i, 1);
+                    orbCount++;
+                    document.getElementById('orb-count').innerText = orbCount;
+                    playSound('orb');
+                } else {
+                    orbs[i].position.y = 1 + Math.sin(Date.now() * 0.005) * 0.2;
+                }
+            }
+
+            if (camera.position.distanceTo(king.position) < 2.8) {
+                feedKing();
+                const pushDir = new THREE.Vector3().subVectors(camera.position, king.position).normalize();
+                camera.position.addScaledVector(pushDir, 1.0);
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.onload = init;
+        window.onresize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
+    </script>
+</body>
+</html>
